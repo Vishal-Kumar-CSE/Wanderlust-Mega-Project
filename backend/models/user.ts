@@ -14,11 +14,14 @@ interface UserObject extends Document {
   role: string;
   posts: Schema.Types.ObjectId;
   refreshToken?: string;
+  forgotPasswordToken?: string;
+  forgotPasswordExpiry?: Date;
   isPasswordCorrect(password: string): Promise<boolean>;
-  generateAccessToken(): Promise<string>;
-  generateRefreshToken(): Promise<string>;
-  generateResetToken(): Promise<string>;
+  generateAccessToken(): string;
+  generateRefreshToken(): string;
+  generateResetToken(): string;
 }
+
 const userSchema = new Schema(
   {
     userName: {
@@ -32,8 +35,8 @@ const userSchema = new Schema(
     fullName: {
       type: String,
       required: [true, 'Name is required'],
-      minLength: [3, 'Name must be at least 3 character'],
-      maxLength: [15, 'Name should be less than 15 character'],
+      minLength: [3, 'Name must be at least 3 characters'],
+      maxLength: [15, 'Name should be less than 15 characters'],
       trim: true,
     },
     email: {
@@ -43,16 +46,16 @@ const userSchema = new Schema(
       trim: true,
       match: [
         /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
-        'Please Enter a valid email address',
+        'Please enter a valid email address',
       ],
     },
     password: {
       type: String,
       required: false,
-      minLength: [8, 'Password must be at least 8 character '],
+      minLength: [8, 'Password must be at least 8 characters'],
       match: [
-        /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/,
-        'Password must be contains at least one uppercase and one lowercase and one digit and one special character',
+        /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/, 
+        'Password must contain at least one uppercase, one lowercase, one digit, and one special character',
       ],
       select: false,
     },
@@ -80,7 +83,6 @@ const userSchema = new Schema(
       required: false,
     },
   },
-
   { timestamps: true }
 );
 
@@ -88,53 +90,55 @@ userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     return next();
   }
-  this.password! = await bcrypt.hash(this.password!, 10);
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
 });
 
 userSchema.methods = {
   isPasswordCorrect: async function (password: string) {
     return await bcrypt.compare(password, this.password);
   },
-  generateAccessToken: async function () {
-    if (JWT_SECRET) {
-      return JWT.sign(
-        {
-          _id: this._id,
-          username: this.userName,
-          email: this.email,
-          role: this.role,
-        },
-        JWT_SECRET,
-        {
-          expiresIn: ACCESS_TOKEN_EXPIRES_IN,
-        }
-      );
+  generateAccessToken: function () {
+    if (!JWT_SECRET) {
+      throw new Error('JWT_SECRET is not defined');
     }
+    return JWT.sign(
+      {
+        _id: this._id,
+        username: this.userName,
+        email: this.email,
+        role: this.role,
+      },
+      JWT_SECRET as string,
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRES_IN as string,
+      }
+    );
   },
-  generateRefreshToken: async function () {
-    if (JWT_SECRET) {
-      return JWT.sign(
-        {
-          _id: this._id,
-          username: this.userName,
-          email: this.email,
-          role: this.role,
-        },
-        JWT_SECRET,
-        {
-          expiresIn: REFRESH_TOKEN_EXPIRES_IN,
-        }
-      );
+  generateRefreshToken: function () {
+    if (!JWT_SECRET) {
+      throw new Error('JWT_SECRET is not defined');
     }
+    return JWT.sign(
+      {
+        _id: this._id,
+        username: this.userName,
+        email: this.email,
+        role: this.role,
+      },
+      JWT_SECRET as string,
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRES_IN as string,
+      }
+    );
   },
-  generateResetToken: async function () {
+  generateResetToken: function () {
     const resetToken = crypto.randomBytes(20).toString('hex');
     this.forgotPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    this.forgotPasswordExpiry = Date.now() + 15 * 60 * 1000;
+    this.forgotPasswordExpiry = new Date(Date.now() + 15 * 60 * 1000);
     return resetToken;
   },
 };
 
 const User = model<UserObject>('User', userSchema);
-
 export default User;
